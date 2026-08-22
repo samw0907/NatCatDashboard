@@ -1,0 +1,39 @@
+# Secrets
+.env
+.env.local
+*.env
+!.env.example
+
+# Local planning/reference docs - kept on disk for context, not pushed to GitHub.
+# README.md is the only project doc that's tracked.
+NATCAT_TRIAGE_PROJECT_PLAN.md
+NATCAT_OPERATIONAL_WORKFLOW_RESEARCH.md
+NatCat_Data_Reliability_Reference.md
+DECISIONS.md
+PROGRESS.md
+
+# Python (backend)
+__pycache__/
+*.pyc
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# Node (frontend)
+node_modules/
+dist/
+build/
+.vite/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Logs
+*.log
+npm-debug.log*
