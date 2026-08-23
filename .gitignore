@@ -11,6 +11,11 @@ NATCAT_OPERATIONAL_WORKFLOW_RESEARCH.md
 NatCat_Data_Reliability_Reference.md
 DECISIONS.md
 PROGRESS.md
+PHASE0_VERIFICATION.md
+
+# Phase 0 verification scripts - throwaway by design (see plan section 9),
+# kept on disk for re-running later, never pushed
+verification/
 
 # Python (backend)
 __pycache__/
