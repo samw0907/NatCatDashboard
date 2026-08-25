@@ -13,7 +13,7 @@ operations analyst role in commercial Earth observation and insurance analytics 
 **not an operational emergency response tool.**
 
 **Live app**: not yet deployed
-**API docs**: not yet deployed
+**API**: https://natcatdashboard-production.up.railway.app (backend only for now - no frontend deployed yet)
 
 ## Why this exists
 
