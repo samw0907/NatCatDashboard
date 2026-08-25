@@ -147,6 +147,52 @@ def upsert_events(session: Session, features: list[dict]) -> dict[str, int]:
     return {"fetched": fetched, "enriched": enriched, "enrichment_failed": enrichment_failed}
 
 
+# PAGER's own published alert thresholds (plan section 4.1) - reused
+# directly rather than inventing new bands. This is Phase 1's placeholder
+# scoring, using only what PAGER already computed for us. The real
+# multi-source formulation (O4/O5) is Phase 3's job, once NSI is wired in
+# and every event - not just the minority with a PAGER product - can be
+# scored the same way.
+_FATALITY_BANDS = (1, 100, 1000)  # yellow, orange, red thresholds
+_ECONOMIC_BANDS_USD = (1_000_000, 100_000_000, 1_000_000_000)
+
+
+def _pager_band(value: float | None, bands: tuple[float, float, float]) -> int | None:
+    """0 (green) to 3 (red), using PAGER's own thresholds."""
+    if value is None:
+        return None
+    yellow, orange, red = bands
+    if value >= red:
+        return 3
+    if value >= orange:
+        return 2
+    if value >= yellow:
+        return 1
+    return 0
+
+
+def _score_from_pager(raw: RawUsgsEvent) -> tuple[float | None, float | None, float | None, str]:
+    """Bands PAGER's own fatality and economic-loss numbers separately,
+    kept as two genuinely distinct axes (plan section 6.2) rather than
+    duplicating the single combined `alert` colour into both. Only covers
+    the minority of events with a losspager product - everything else
+    stays unscored with an honest confidence note (section 6.3), rather
+    than a fabricated number."""
+    if raw.alert is None:
+        return None, None, None, "no PAGER product available"
+
+    humanitarian = _pager_band(raw.pager_total_fatalities, _FATALITY_BANDS)
+    economic = _pager_band(raw.pager_total_economic_loss_usd, _ECONOMIC_BANDS_USD)
+    present = [s for s in (humanitarian, economic) if s is not None]
+    overall = max(present) if present else None
+    return (
+        humanitarian,
+        economic,
+        overall,
+        "Phase 1 placeholder - PAGER-band-derived, not the full O4/O5 formulation",
+    )
+
+
 def normalize_to_events(session: Session) -> int:
     """Normalise every row currently in raw_usgs_events into the unified
     events table (plan section 8.1, ingest step 3). Reads the whole raw
@@ -159,6 +205,7 @@ def normalize_to_events(session: Session) -> int:
 
     for raw in raw_rows:
         existing = session.get(Event, ("usgs", raw.id))
+        humanitarian_score, economic_score, overall_score, confidence = _score_from_pager(raw)
         event = Event(
             source="usgs",
             source_event_id=raw.id,
@@ -175,13 +222,10 @@ def normalize_to_events(session: Session) -> int:
             primary_metric_label="magnitude",
             primary_metric_value=raw.mag,
             source_alert_level=raw.alert,
-            # Scoring not wired in yet (Phase 1(d)) - preserve whatever a
-            # prior scoring pass computed rather than clobbering it back to
-            # null on every normalisation run.
-            humanitarian_score=existing.humanitarian_score if existing else None,
-            economic_score=existing.economic_score if existing else None,
-            overall_score=existing.overall_score if existing else None,
-            confidence=existing.confidence if existing else None,
+            humanitarian_score=humanitarian_score,
+            economic_score=economic_score,
+            overall_score=overall_score,
+            confidence=confidence,
             first_seen_at=existing.first_seen_at if existing else now,
             last_synced_at=now,
         )

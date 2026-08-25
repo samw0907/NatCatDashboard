@@ -1,7 +1,7 @@
 # backend/app/routers/events.py
 
 from fastapi import APIRouter, Depends
-from sqlalchemy import select
+from sqlalchemy import nulls_last, select
 from sqlalchemy.orm import Session
 
 from ..db import get_session
@@ -20,10 +20,15 @@ def get_db():
 
 @router.get("/events")
 def list_events(db: Session = Depends(get_db)):
-    """Minimal read of the unified events table - proves normalisation
-    worked, and is the foundation the queue view (plan section 8.3) will
-    build on. No sorting/filtering yet - that's Phase 5."""
-    events = db.execute(select(Event)).scalars().all()
+    """Read of the unified events table, ranked by overall score (nulls
+    last) - proves the pipeline actually produces a ranked queue, not just
+    a normalised table. Only sorted by overall score for now; sorting by a
+    chosen axis and filtering by peril (plan section 8.3) is Phase 5."""
+    events = (
+        db.execute(select(Event).order_by(nulls_last(Event.overall_score.desc())))
+        .scalars()
+        .all()
+    )
     return [
         {
             "source": e.source,
@@ -36,7 +41,10 @@ def list_events(db: Session = Depends(get_db)):
             "primary_metric_label": e.primary_metric_label,
             "primary_metric_value": e.primary_metric_value,
             "source_alert_level": e.source_alert_level,
+            "humanitarian_score": e.humanitarian_score,
+            "economic_score": e.economic_score,
             "overall_score": e.overall_score,
+            "confidence": e.confidence,
         }
         for e in events
     ]
