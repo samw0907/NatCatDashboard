@@ -22,9 +22,8 @@ if config.config_file_name is not None:
 # connection string.
 config.set_main_option("sqlalchemy.url", get_settings().sqlalchemy_database_url)
 
-# No model modules exist yet (Phase 1). Once app/models.py defines tables
-# on Base, import it here so autogenerate can see them:
-#   from app import models  # noqa: F401
+from app import models  # noqa: F401 - registers tables on Base.metadata
+
 target_metadata = Base.metadata
 
 # other values from the config, defined by the needs of env.py,
