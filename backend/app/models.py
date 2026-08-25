@@ -180,11 +180,18 @@ class Event(Base):
     # below for the comparison plan section 6.4 calls for.
     source_alert_level: Mapped[str | None] = mapped_column(String)
 
-    # Scoring (plan section 6) - null until Phase 1(d)/Phase 3 wires it in.
+    # Scoring (plan section 6, O4/O5 resolved 2026-08-25 - see scoring.py).
     humanitarian_score: Mapped[float | None] = mapped_column(Float)
     economic_score: Mapped[float | None] = mapped_column(Float)
     overall_score: Mapped[float | None] = mapped_column(Float)
     confidence: Mapped[str | None] = mapped_column(String)
+    # When scoring last actually ran for this event - distinct from
+    # last_synced_at (which updates on every cheap normalisation pass).
+    # Scoring that depends on an external call (NSI intersection) is
+    # expensive-tier and shouldn't rerun just because normalisation did;
+    # this is what a rescore guard checks against last_updated to decide
+    # whether the underlying hazard footprint actually changed.
+    scored_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     first_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     last_synced_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))

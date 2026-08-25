@@ -26,10 +26,11 @@ def ingest_usgs(days: int = 14, db: Session = Depends(get_db)):
 
 
 @router.post("/ingest/nifc")
-def ingest_nifc(db: Session = Depends(get_db)):
+def ingest_nifc(score_limit: int = 20, db: Session = Depends(get_db)):
     features = nifc.fetch_perimeters()
     result = nifc.upsert_events(db, features)
     result["normalized"] = nifc.normalize_to_events(db)
+    result["scoring"] = nifc.score_events(db, limit=score_limit)
     return result
 
 

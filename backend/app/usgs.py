@@ -7,6 +7,7 @@ import httpx
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from . import scoring
 from .models import Event, RawUsgsEvent
 
 QUERY_URL = "https://earthquake.usgs.gov/fdsnws/event/1/query"
@@ -147,50 +148,47 @@ def upsert_events(session: Session, features: list[dict]) -> dict[str, int]:
     return {"fetched": fetched, "enriched": enriched, "enrichment_failed": enrichment_failed}
 
 
-# PAGER's own published alert thresholds (plan section 4.1) - reused
-# directly rather than inventing new bands. This is Phase 1's placeholder
-# scoring, using only what PAGER already computed for us. The real
-# multi-source formulation (O4/O5) is Phase 3's job, once NSI is wired in
-# and every event - not just the minority with a PAGER product - can be
-# scored the same way.
-_FATALITY_BANDS = (1, 100, 1000)  # yellow, orange, red thresholds
-_ECONOMIC_BANDS_USD = (1_000_000, 100_000_000, 1_000_000_000)
-
-
-def _pager_band(value: float | None, bands: tuple[float, float, float]) -> int | None:
-    """0 (green) to 3 (red), using PAGER's own thresholds."""
-    if value is None:
+def _weighted_population_exposure(pager_population_exposure: dict | None) -> float | None:
+    """Sums PAGER's MMI-banded population exposure, weighted by intensity
+    (plan section 6.3: "weighted by hazard intensity where the source
+    provides it"). Only counts MMI 4+ ("Light" and above on the Modified
+    Mercalli scale, where shaking becomes widely felt and minor damage
+    becomes possible) - MMI 1-3 is negligible/unfelt shaking, and including
+    it would inflate the count with people who experienced no meaningful
+    risk. Weight is (mmi - 3), so MMI 4 counts once per capita and MMI 10
+    counts seven times - a simple, transparent increasing weighting, not a
+    physically-derived damage curve; stated as the simplification it is."""
+    if not pager_population_exposure:
         return None
-    yellow, orange, red = bands
-    if value >= red:
-        return 3
-    if value >= orange:
-        return 2
-    if value >= yellow:
-        return 1
-    return 0
+    mmi_values = pager_population_exposure.get("mmi", [])
+    exposure_values = pager_population_exposure.get("aggregated_exposure", [])
+    total = sum(pop * (mmi - 3) for mmi, pop in zip(mmi_values, exposure_values) if mmi >= 4)
+    return total if total > 0 else None
 
 
-def _score_from_pager(raw: RawUsgsEvent) -> tuple[float | None, float | None, float | None, str]:
-    """Bands PAGER's own fatality and economic-loss numbers separately,
-    kept as two genuinely distinct axes (plan section 6.2) rather than
-    duplicating the single combined `alert` colour into both. Only covers
-    the minority of events with a losspager product - everything else
-    stays unscored with an honest confidence note (section 6.3), rather
-    than a fabricated number."""
+def _score_earthquake(raw: RawUsgsEvent) -> tuple[float | None, float | None, float | None, str]:
+    """O4/O5 resolved 2026-08-25 (plan section 6.3). Humanitarian axis:
+    PAGER's own MMI-banded population exposure, weighted by intensity, fed
+    through the shared continuous log-scale score (scoring.py). Economic
+    axis stays null - it needs NSI point-in-polygon intersection against a
+    real footprint, and earthquake has none yet (ShakeMap's MMI contour
+    isn't fetched) - deliberately deferred, not forgotten, per the
+    2026-08-25 sequencing decision to score what's ready now rather than
+    block on fetching two more kinds of hazard-footprint geometry first.
+    Only covers the minority of events with a losspager product."""
     if raw.alert is None:
         return None, None, None, "no PAGER product available"
 
-    humanitarian = _pager_band(raw.pager_total_fatalities, _FATALITY_BANDS)
-    economic = _pager_band(raw.pager_total_economic_loss_usd, _ECONOMIC_BANDS_USD)
-    present = [s for s in (humanitarian, economic) if s is not None]
-    overall = max(present) if present else None
-    return (
-        humanitarian,
-        economic,
-        overall,
-        "Phase 1 placeholder - PAGER-band-derived, not the full O4/O5 formulation",
+    exposure = _weighted_population_exposure(raw.pager_population_exposure)
+    humanitarian = scoring.humanitarian_score(exposure)
+    economic = None
+    overall = scoring.overall_score(humanitarian, economic)
+    confidence = (
+        "humanitarian axis only - no footprint geometry yet for the economic axis"
+        if humanitarian is not None
+        else "PAGER product present but no usable population exposure data"
     )
+    return humanitarian, economic, overall, confidence
 
 
 def normalize_to_events(session: Session) -> int:
@@ -205,7 +203,7 @@ def normalize_to_events(session: Session) -> int:
 
     for raw in raw_rows:
         existing = session.get(Event, ("usgs", raw.id))
-        humanitarian_score, economic_score, overall_score, confidence = _score_from_pager(raw)
+        humanitarian_score, economic_score, overall_score, confidence = _score_earthquake(raw)
         event = Event(
             source="usgs",
             source_event_id=raw.id,
@@ -226,6 +224,10 @@ def normalize_to_events(session: Session) -> int:
             economic_score=economic_score,
             overall_score=overall_score,
             confidence=confidence,
+            # Earthquake scoring is cheap (reuses already-fetched PAGER
+            # data, no new external call) so it can safely run on every
+            # normalisation pass, unlike wildfire's NSI-dependent scoring.
+            scored_at=now,
             first_seen_at=existing.first_seen_at if existing else now,
             last_synced_at=now,
         )

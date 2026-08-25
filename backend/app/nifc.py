@@ -8,6 +8,7 @@ from shapely.geometry import shape
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from . import nsi, scoring
 from .models import Event, RawNifcEvent
 
 # Endpoint re-verified 2026-08-25 (previously verified by WildfireDashboard
@@ -127,13 +128,15 @@ def normalize_to_events(session: Session) -> int:
             # wildfire the way PAGER exists for earthquake (plan 5.4) -
             # left null rather than approximated.
             source_alert_level=None,
-            # Scoring is Phase 3's job, done once for every peril via NSI -
-            # not worth inventing a one-off placeholder per source the way
-            # Phase 1(d) did for earthquake's PAGER data.
-            humanitarian_score=None,
-            economic_score=None,
-            overall_score=None,
-            confidence="not yet scored (Phase 3)",
+            # Scoring is expensive-tier (NSI intersection) and runs
+            # separately via score_events(), not on every normalisation
+            # pass - preserve whatever's already there rather than
+            # wiping it back to null on every poll.
+            humanitarian_score=existing.humanitarian_score if existing else None,
+            economic_score=existing.economic_score if existing else None,
+            overall_score=existing.overall_score if existing else None,
+            confidence=existing.confidence if existing else "not yet scored",
+            scored_at=existing.scored_at if existing else None,
             first_seen_at=existing.first_seen_at if existing else now,
             last_synced_at=now,
         )
@@ -142,3 +145,47 @@ def normalize_to_events(session: Session) -> int:
 
     session.commit()
     return normalized
+
+
+def score_events(session: Session, limit: int = 20) -> dict[str, int]:
+    """Expensive-tier scoring (NSI point-in-polygon intersection) for
+    wildfire events, run separately from normalisation and guarded on two
+    fronts: only (re)scores an event if it's never been scored, or its
+    perimeter has genuinely changed since the last time it was scored
+    (last_updated newer than scored_at) - running NSI intersection for all
+    ~200+ wildfires on every poll would be far too slow (a single NSI bbox
+    query took ~30s in Phase 0 testing). `limit` caps how many get scored
+    per call so a single poll stays bounded; events not reached this call
+    get picked up on a later one."""
+    now = datetime.now(timezone.utc)
+    candidates = (
+        session.execute(select(Event).where(Event.peril == "wildfire")).scalars().all()
+    )
+    needs_scoring = [
+        e
+        for e in candidates
+        if e.scored_at is None or (e.last_updated is not None and e.last_updated > e.scored_at)
+    ]
+
+    scored = 0
+    failed = 0
+    for event in needs_scoring[:limit]:
+        try:
+            exposure = nsi.summarize_exposure(event.footprint_geojson)
+        except httpx.HTTPError:
+            failed += 1
+            continue
+
+        event.humanitarian_score = scoring.humanitarian_score(exposure["population_exposed"])
+        event.economic_score = scoring.economic_score(exposure["replacement_cost_usd"])
+        event.overall_score = scoring.overall_score(event.humanitarian_score, event.economic_score)
+        event.confidence = (
+            f"NSI intersection, {exposure['structure_count']} structures found"
+            if exposure["structure_count"] is not None
+            else "no footprint available"
+        )
+        event.scored_at = now
+        scored += 1
+
+    session.commit()
+    return {"scored": scored, "failed": failed, "remaining": max(0, len(needs_scoring) - scored)}
