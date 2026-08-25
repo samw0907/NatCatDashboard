@@ -99,3 +99,32 @@ class Event(Base):
 
     first_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     last_synced_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
+class RawNifcEvent(Base):
+    """Raw NIFC WFIGS wildfire perimeter records, one row per incident,
+    shaped to WFIGS's own field structure - see plan section 8.1."""
+
+    __tablename__ = "raw_nifc_events"
+
+    # IRWIN ID - the standard cross-agency wildfire incident identifier.
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+
+    incident_name: Mapped[str | None] = mapped_column(String)
+    # GIS-calculated acreage from the actual perimeter polygon we store
+    # below - kept separate from the self-reported incident_size since the
+    # two can diverge; gis_acres is what's internally consistent with the
+    # stored geometry.
+    gis_acres: Mapped[float | None] = mapped_column(Float)
+    incident_size: Mapped[float | None] = mapped_column(Float)
+    discovery_time: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    date_current: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    percent_contained: Mapped[float | None] = mapped_column(Float)
+    fire_cause: Mapped[str | None] = mapped_column(String)
+    complexity_level: Mapped[str | None] = mapped_column(String)
+    poo_state: Mapped[str | None] = mapped_column(String)
+    geometry: Mapped[dict | None] = mapped_column(JSON)
+    raw_properties: Mapped[dict] = mapped_column(JSON)
+
+    first_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    last_polled_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))

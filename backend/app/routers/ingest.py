@@ -3,7 +3,7 @@
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
-from .. import usgs
+from .. import nifc, usgs
 from ..db import get_session
 
 router = APIRouter(prefix="/api")
@@ -22,4 +22,12 @@ def ingest_usgs(days: int = 14, db: Session = Depends(get_db)):
     features = usgs.fetch_summary(days=days)
     result = usgs.upsert_events(db, features)
     result["normalized"] = usgs.normalize_to_events(db)
+    return result
+
+
+@router.post("/ingest/nifc")
+def ingest_nifc(db: Session = Depends(get_db)):
+    features = nifc.fetch_perimeters()
+    result = nifc.upsert_events(db, features)
+    result["normalized"] = nifc.normalize_to_events(db)
     return result
