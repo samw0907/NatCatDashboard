@@ -3,7 +3,7 @@
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
-from .. import nifc, usgs
+from .. import nhc, nifc, usgs
 from ..db import get_session
 
 router = APIRouter(prefix="/api")
@@ -30,4 +30,15 @@ def ingest_nifc(db: Session = Depends(get_db)):
     features = nifc.fetch_perimeters()
     result = nifc.upsert_events(db, features)
     result["normalized"] = nifc.normalize_to_events(db)
+    return result
+
+
+@router.post("/ingest/nhc")
+def ingest_nhc(db: Session = Depends(get_db)):
+    storms = nhc.fetch_current_storms()
+    result = nhc.upsert_storms(db, storms)
+    result["normalized"] = nhc.normalize_to_events(db)
+
+    rss_items = nhc.fetch_rss_items()
+    result["rss"] = nhc.upsert_rss_items(db, rss_items)
     return result

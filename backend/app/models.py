@@ -52,6 +52,59 @@ class RawUsgsEvent(Base):
     last_polled_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
 
 
+class RawNhcStorm(Base):
+    """Raw NHC active-storm records from CurrentStorms.json, one row per
+    storm - see plan section 5.2 (2026-08-25 revision)."""
+
+    __tablename__ = "raw_nhc_storms"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)  # e.g. "cp012026"
+
+    name: Mapped[str | None] = mapped_column(String)
+    classification: Mapped[str | None] = mapped_column(String)  # "TS", "HU", etc
+    intensity_kt: Mapped[float | None] = mapped_column(Float)
+    pressure_mb: Mapped[float | None] = mapped_column(Float)
+    longitude: Mapped[float | None] = mapped_column(Float)
+    latitude: Mapped[float | None] = mapped_column(Float)
+    movement_dir: Mapped[float | None] = mapped_column(Float)
+    movement_speed_kt: Mapped[float | None] = mapped_column(Float)
+    advisory_num: Mapped[str | None] = mapped_column(String)
+    last_update: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # Full raw storm object, including every GIS product URL
+    # (track/cone/wind-radii/surge KMZ+ZIP links) - not parsed out into
+    # columns since none are fetched yet (expensive-enrichment tier,
+    # deferred), but kept so a later phase can read them straight from here.
+    raw_properties: Mapped[dict] = mapped_column(JSON)
+
+    first_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    last_polled_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
+class RawNhcRssItem(Base):
+    """Raw items from NHC's per-basin RSS feeds (gis-at.xml, gis-ep.xml,
+    gis-cp.xml) - ingested and stored alongside CurrentStorms.json rather
+    than instead of it (plan section 5.2, 2026-08-23 decision), since most
+    items just re-announce the same GIS products CurrentStorms.json links
+    to directly, but "summary-*" items carry a human-readable NHC headline
+    (via cyclone_data) that CurrentStorms.json doesn't have at all."""
+
+    __tablename__ = "raw_nhc_rss_items"
+
+    guid: Mapped[str] = mapped_column(String, primary_key=True)
+
+    basin: Mapped[str] = mapped_column(String)  # "at", "ep", "cp"
+    title: Mapped[str | None] = mapped_column(String)
+    link: Mapped[str | None] = mapped_column(String)
+    pub_date: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # Parsed from the <nhc:Cyclone> element, present only on "summary-*"
+    # items.
+    cyclone_data: Mapped[dict | None] = mapped_column(JSON)
+    raw_item: Mapped[dict] = mapped_column(JSON)
+
+    first_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    last_polled_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
 class Event(Base):
     """The unified table every source's ingest normalises into - see plan
     section 8.1. Deliberately generic: peril-specific detail stays in each
