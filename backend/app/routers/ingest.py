@@ -3,7 +3,7 @@
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
-from .. import nhc, nifc, usgs
+from .. import gdacs, nhc, nifc, usgs
 from ..db import get_session
 
 router = APIRouter(prefix="/api")
@@ -42,3 +42,12 @@ def ingest_nhc(db: Session = Depends(get_db)):
     rss_items = nhc.fetch_rss_items()
     result["rss"] = nhc.upsert_rss_items(db, rss_items)
     return result
+
+
+@router.post("/ingest/gdacs")
+def ingest_gdacs(days: int = 14, db: Session = Depends(get_db)):
+    """Raw storage only - never normalised into the unified events table
+    (D8). No corresponding GET endpoint yet either; nothing reads this
+    data until O14 decides it should."""
+    features = gdacs.fetch_events(days=days)
+    return gdacs.upsert_events(db, features)

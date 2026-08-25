@@ -105,6 +105,42 @@ class RawNhcRssItem(Base):
     last_polled_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
 
 
+class RawGdacsEvent(Base):
+    """Raw GDACS event records, stored per plan D8 - ingested and kept for
+    a possible future comparison use (O14), but never wired into scoring
+    or the UI. Scoped to the three perils this project tracks (EQ, TC, WF)
+    rather than all seven GDACS hazard types - flood/volcano/drought/
+    tsunami would have nothing of ours to compare against. Global, not
+    filtered to the US - GDACS's SEARCH endpoint offers no geographic
+    filter, and filtering client-side would be premature before O14
+    actually decides what this data gets used for, if anything.
+
+    Keyed on (event_id, episode_id) rather than event_id alone - GDACS
+    events accumulate episodes as they develop (e.g. a cyclone's
+    advisories), and each episode can carry a different alert level. This
+    naturally preserves that history across repeated polls rather than
+    only keeping the latest state."""
+
+    __tablename__ = "raw_gdacs_events"
+
+    event_id: Mapped[str] = mapped_column(String, primary_key=True)
+    episode_id: Mapped[str] = mapped_column(String, primary_key=True)
+
+    event_type: Mapped[str | None] = mapped_column(String)  # "EQ", "TC", "WF"
+    name: Mapped[str | None] = mapped_column(String)
+    country: Mapped[str | None] = mapped_column(String)
+    alert_level: Mapped[str | None] = mapped_column(String)  # Green/Orange/Red
+    from_date: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    to_date: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    severity_value: Mapped[float | None] = mapped_column(Float)
+    severity_text: Mapped[str | None] = mapped_column(String)
+    severity_unit: Mapped[str | None] = mapped_column(String)
+    raw_properties: Mapped[dict] = mapped_column(JSON)
+
+    first_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    last_polled_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
 class Event(Base):
     """The unified table every source's ingest normalises into - see plan
     section 8.1. Deliberately generic: peril-specific detail stays in each
