@@ -4,9 +4,10 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 
 import httpx
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from .models import RawUsgsEvent
+from .models import Event, RawUsgsEvent
 
 QUERY_URL = "https://earthquake.usgs.gov/fdsnws/event/1/query"
 
@@ -144,3 +145,48 @@ def upsert_events(session: Session, features: list[dict]) -> dict[str, int]:
 
     session.commit()
     return {"fetched": fetched, "enriched": enriched, "enrichment_failed": enrichment_failed}
+
+
+def normalize_to_events(session: Session) -> int:
+    """Normalise every row currently in raw_usgs_events into the unified
+    events table (plan section 8.1, ingest step 3). Reads the whole raw
+    table rather than just newly-touched rows - the raw table is small
+    (rolling ~14-day window) so this is cheap, and it keeps normalisation
+    idempotent and simple rather than needing to track what changed."""
+    now = datetime.now(timezone.utc)
+    raw_rows = session.execute(select(RawUsgsEvent)).scalars().all()
+    normalized = 0
+
+    for raw in raw_rows:
+        existing = session.get(Event, ("usgs", raw.id))
+        event = Event(
+            source="usgs",
+            source_event_id=raw.id,
+            peril="earthquake",
+            name=raw.title or raw.place,
+            event_time=raw.event_time,
+            last_updated=raw.updated,
+            longitude=raw.longitude,
+            latitude=raw.latitude,
+            # No real footprint geometry yet - see the Event model's
+            # docstring and plan section 8.1. Left null deliberately rather
+            # than approximated with an invented radius.
+            footprint_geojson=None,
+            primary_metric_label="magnitude",
+            primary_metric_value=raw.mag,
+            source_alert_level=raw.alert,
+            # Scoring not wired in yet (Phase 1(d)) - preserve whatever a
+            # prior scoring pass computed rather than clobbering it back to
+            # null on every normalisation run.
+            humanitarian_score=existing.humanitarian_score if existing else None,
+            economic_score=existing.economic_score if existing else None,
+            overall_score=existing.overall_score if existing else None,
+            confidence=existing.confidence if existing else None,
+            first_seen_at=existing.first_seen_at if existing else now,
+            last_synced_at=now,
+        )
+        session.merge(event)
+        normalized += 1
+
+    session.commit()
+    return normalized

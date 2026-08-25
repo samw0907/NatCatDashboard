@@ -50,3 +50,52 @@ class RawUsgsEvent(Base):
 
     first_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     last_polled_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
+class Event(Base):
+    """The unified table every source's ingest normalises into - see plan
+    section 8.1. Deliberately generic: peril-specific detail stays in each
+    source's own raw table, this is only what's needed to rank and display
+    events across perils.
+
+    Primary key is (source, source_event_id) rather than a synthetic id, so
+    upserts are a straightforward keyed merge and the link back to the raw
+    row - where the full detail actually lives - is never ambiguous."""
+
+    __tablename__ = "events"
+
+    source: Mapped[str] = mapped_column(String, primary_key=True)  # "usgs", "nhc", "nifc"
+    source_event_id: Mapped[str] = mapped_column(String, primary_key=True)
+
+    peril: Mapped[str] = mapped_column(String)  # "earthquake", "wind", "wildfire"
+    name: Mapped[str | None] = mapped_column(String)
+    event_time: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    last_updated: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    longitude: Mapped[float | None] = mapped_column(Float)
+    latitude: Mapped[float | None] = mapped_column(Float)
+    # Real hazard footprint (GeoJSON), where one exists - null until a
+    # peril-specific footprint source is wired in. For earthquake the
+    # natural footprint is the ShakeMap MMI contour, not yet fetched; this
+    # is deliberately deferred to Phase 3, when NSI point-in-polygon
+    # intersection actually needs a real boundary to query against.
+    footprint_geojson: Mapped[dict | None] = mapped_column(JSON)
+
+    # Peril-specific severity headline, kept as a labelled pair rather than
+    # forcing incompatible units (magnitude, knots, acres) into one column.
+    primary_metric_label: Mapped[str | None] = mapped_column(String)
+    primary_metric_value: Mapped[float | None] = mapped_column(Float)
+
+    # The source's own published alert/severity band, where one exists -
+    # e.g. PAGER's colour for earthquake - kept alongside our own scores
+    # below for the comparison plan section 6.4 calls for.
+    source_alert_level: Mapped[str | None] = mapped_column(String)
+
+    # Scoring (plan section 6) - null until Phase 1(d)/Phase 3 wires it in.
+    humanitarian_score: Mapped[float | None] = mapped_column(Float)
+    economic_score: Mapped[float | None] = mapped_column(Float)
+    overall_score: Mapped[float | None] = mapped_column(Float)
+    confidence: Mapped[str | None] = mapped_column(String)
+
+    first_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    last_synced_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))

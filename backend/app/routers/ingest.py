@@ -20,4 +20,6 @@ def get_db():
 @router.post("/ingest/usgs")
 def ingest_usgs(days: int = 14, db: Session = Depends(get_db)):
     features = usgs.fetch_summary(days=days)
-    return usgs.upsert_events(db, features)
+    result = usgs.upsert_events(db, features)
+    result["normalized"] = usgs.normalize_to_events(db)
+    return result
