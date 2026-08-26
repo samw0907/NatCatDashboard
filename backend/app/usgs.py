@@ -4,10 +4,12 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 
 import httpx
+from shapely.geometry import Polygon, mapping
+from shapely.ops import unary_union
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from . import scoring
+from . import nsi, scoring
 from .models import Event, RawUsgsEvent
 
 QUERY_URL = "https://earthquake.usgs.gov/fdsnws/event/1/query"
@@ -46,31 +48,80 @@ def fetch_summary(days: int = 14) -> list[dict]:
     return resp.json()["features"]
 
 
-def fetch_losspager_enrichment(detail_url: str) -> dict[str, Any] | None:
-    """Two-tier fetch: given an event's detail feed URL, fetch the losspager
-    product's exposures.json and losses.json contents. Returns None if the
-    event has no losspager product."""
+MIN_FOOTPRINT_MMI = 4.0
+
+
+def _mmi_contour_polygon(cont_mmi_geojson: dict, min_mmi: float) -> dict | None:
+    """Builds a polygon for "shaking at or above min_mmi" from ShakeMap's
+    MMI contour lines. Real contour output is messier than it looks:
+    fragments aren't reliably closed rings (checked live - roughly 2/3 of
+    fragments closed on a real M7.4 event, the rest open pieces clipped at
+    the computation grid's edge). Only closed rings are used, unioned
+    together - a defensible simplification (slightly conservative at grid
+    edges), not a perfect reconstruction. Uses the lowest available
+    contour level at or above min_mmi, since ShakeMap doesn't always
+    compute every 0.5-step level for every event."""
+    candidates = [
+        f
+        for f in cont_mmi_geojson.get("features", [])
+        if f.get("properties", {}).get("value") is not None
+        and f["properties"]["value"] >= min_mmi
+    ]
+    if not candidates:
+        return None
+    target_value = min(f["properties"]["value"] for f in candidates)
+
+    rings = []
+    for f in candidates:
+        if f["properties"]["value"] != target_value:
+            continue
+        for line in f["geometry"]["coordinates"]:
+            if len(line) >= 4 and line[0] == line[-1]:
+                rings.append(Polygon(line).buffer(0))
+    if not rings:
+        return None
+    return mapping(unary_union(rings))
+
+
+def fetch_enrichment(detail_url: str) -> dict[str, Any]:
+    """Two-tier fetch: given an event's detail feed URL, fetch the
+    losspager product's exposure/loss data and the ShakeMap MMI contour in
+    one pass (both need the same detail_url fetch, no point doing it
+    twice). Any field stays None if that product doesn't exist for this
+    event - a missing shakemap doesn't block losspager data or vice versa."""
     resp = httpx.get(detail_url, timeout=30)
     resp.raise_for_status()
     detail = resp.json()
-    losspager = detail.get("properties", {}).get("products", {}).get("losspager")
-    if not losspager:
-        return None
+    products = detail.get("properties", {}).get("products", {})
 
-    contents = losspager[0].get("contents", {})
-    exposures_url = contents.get("json/exposures.json", {}).get("url")
-    losses_url = contents.get("json/losses.json", {}).get("url")
-    if not exposures_url or not losses_url:
-        return None
-
-    exposures = httpx.get(exposures_url, timeout=30).json()
-    losses = httpx.get(losses_url, timeout=30).json()
-
-    return {
-        "population_exposure": exposures.get("population_exposure"),
-        "total_fatalities": losses.get("empirical_fatality", {}).get("total_fatalities"),
-        "total_economic_loss_usd": losses.get("empirical_economic", {}).get("total_dollars"),
+    result: dict[str, Any] = {
+        "population_exposure": None,
+        "total_fatalities": None,
+        "total_economic_loss_usd": None,
+        "mmi_contour_geojson": None,
     }
+
+    losspager = products.get("losspager")
+    if losspager:
+        contents = losspager[0].get("contents", {})
+        exposures_url = contents.get("json/exposures.json", {}).get("url")
+        losses_url = contents.get("json/losses.json", {}).get("url")
+        if exposures_url and losses_url:
+            exposures = httpx.get(exposures_url, timeout=30).json()
+            losses = httpx.get(losses_url, timeout=30).json()
+            result["population_exposure"] = exposures.get("population_exposure")
+            result["total_fatalities"] = losses.get("empirical_fatality", {}).get("total_fatalities")
+            result["total_economic_loss_usd"] = losses.get("empirical_economic", {}).get("total_dollars")
+
+    shakemap = products.get("shakemap")
+    if shakemap:
+        contents = shakemap[0].get("contents", {})
+        cont_url = contents.get("download/cont_mmi.json", {}).get("url")
+        if cont_url:
+            cont_geojson = httpx.get(cont_url, timeout=30).json()
+            result["mmi_contour_geojson"] = _mmi_contour_polygon(cont_geojson, MIN_FOOTPRINT_MMI)
+
+    return result
 
 
 def parse_feature(feature: dict) -> dict[str, Any]:
@@ -120,11 +171,12 @@ def upsert_events(session: Session, features: list[dict]) -> dict[str, int]:
             "pager_population_exposure": existing.pager_population_exposure if existing else None,
             "pager_total_fatalities": existing.pager_total_fatalities if existing else None,
             "pager_total_economic_loss_usd": existing.pager_total_economic_loss_usd if existing else None,
+            "mmi_contour_geojson": existing.mmi_contour_geojson if existing else None,
             "enrichment_fetched_at": existing.enrichment_fetched_at if existing else None,
         }
         if fields["alert"] is not None and fields["detail_url"]:
             try:
-                enrichment = fetch_losspager_enrichment(fields["detail_url"])
+                enrichment = fetch_enrichment(fields["detail_url"])
             except httpx.HTTPError:
                 enrichment = None
                 enrichment_failed += 1
@@ -133,6 +185,7 @@ def upsert_events(session: Session, features: list[dict]) -> dict[str, int]:
                     "pager_population_exposure": enrichment["population_exposure"],
                     "pager_total_fatalities": enrichment["total_fatalities"],
                     "pager_total_economic_loss_usd": enrichment["total_economic_loss_usd"],
+                    "mmi_contour_geojson": enrichment["mmi_contour_geojson"],
                     "enrichment_fetched_at": now,
                 }
                 enriched += 1
@@ -166,29 +219,23 @@ def _weighted_population_exposure(pager_population_exposure: dict | None) -> flo
     return total if total > 0 else None
 
 
-def _score_earthquake(raw: RawUsgsEvent) -> tuple[float | None, float | None, float | None, str]:
-    """O4/O5 resolved 2026-08-25 (plan section 6.3). Humanitarian axis:
-    PAGER's own MMI-banded population exposure, weighted by intensity, fed
-    through the shared continuous log-scale score (scoring.py). Economic
-    axis stays null - it needs NSI point-in-polygon intersection against a
-    real footprint, and earthquake has none yet (ShakeMap's MMI contour
-    isn't fetched) - deliberately deferred, not forgotten, per the
-    2026-08-25 sequencing decision to score what's ready now rather than
-    block on fetching two more kinds of hazard-footprint geometry first.
-    Only covers the minority of events with a losspager product."""
+def _score_earthquake_humanitarian(raw: RawUsgsEvent) -> tuple[float | None, str]:
+    """Cheap pass, runs on every normalisation: PAGER's own MMI-banded
+    population exposure, weighted by intensity, fed through the shared
+    continuous log-scale score (scoring.py, O4 resolved 2026-08-25).
+    Economic axis is scored separately by score_economic() (expensive-tier,
+    NSI-based, guarded) - not computed here. Only covers the minority of
+    events with a losspager product."""
     if raw.alert is None:
-        return None, None, None, "no PAGER product available"
+        return None, "no PAGER product available"
 
     exposure = _weighted_population_exposure(raw.pager_population_exposure)
     humanitarian = scoring.humanitarian_score(exposure)
-    economic = None
-    overall = scoring.overall_score(humanitarian, economic)
-    confidence = (
-        "humanitarian axis only - no footprint geometry yet for the economic axis"
-        if humanitarian is not None
-        else "PAGER product present but no usable population exposure data"
-    )
-    return humanitarian, economic, overall, confidence
+    if humanitarian is None:
+        return None, "PAGER product present but no usable population exposure data"
+    if raw.mmi_contour_geojson:
+        return humanitarian, "humanitarian axis scored; economic axis pending"
+    return humanitarian, "humanitarian axis scored; no footprint geometry available for the economic axis"
 
 
 def normalize_to_events(session: Session) -> int:
@@ -203,7 +250,18 @@ def normalize_to_events(session: Session) -> int:
 
     for raw in raw_rows:
         existing = session.get(Event, ("usgs", raw.id))
-        humanitarian_score, economic_score, overall_score, confidence = _score_earthquake(raw)
+        humanitarian_score, humanitarian_confidence = _score_earthquake_humanitarian(raw)
+
+        # Economic score and scored_at are owned by the separate expensive
+        # pass (score_economic()) - preserved here, not recomputed. Once
+        # that pass has actually run (scored_at set), its confidence
+        # message is the authoritative one; otherwise use the cheap pass's.
+        economic_score = existing.economic_score if existing else None
+        scored_at = existing.scored_at if existing else None
+        confidence = (
+            existing.confidence if (existing and existing.scored_at) else humanitarian_confidence
+        )
+
         event = Event(
             source="usgs",
             source_event_id=raw.id,
@@ -213,21 +271,18 @@ def normalize_to_events(session: Session) -> int:
             last_updated=raw.updated,
             longitude=raw.longitude,
             latitude=raw.latitude,
-            # No real footprint geometry yet - see the Event model's
-            # docstring and plan section 8.1. Left null deliberately rather
-            # than approximated with an invented radius.
-            footprint_geojson=None,
+            # Real MMI contour polygon where a shakemap product exists
+            # (see fetch_enrichment/_mmi_contour_polygon above) - null
+            # otherwise, never approximated with an invented radius.
+            footprint_geojson=raw.mmi_contour_geojson,
             primary_metric_label="magnitude",
             primary_metric_value=raw.mag,
             source_alert_level=raw.alert,
             humanitarian_score=humanitarian_score,
             economic_score=economic_score,
-            overall_score=overall_score,
+            overall_score=scoring.overall_score(humanitarian_score, economic_score),
             confidence=confidence,
-            # Earthquake scoring is cheap (reuses already-fetched PAGER
-            # data, no new external call) so it can safely run on every
-            # normalisation pass, unlike wildfire's NSI-dependent scoring.
-            scored_at=now,
+            scored_at=scored_at,
             first_seen_at=existing.first_seen_at if existing else now,
             last_synced_at=now,
         )
@@ -236,3 +291,52 @@ def normalize_to_events(session: Session) -> int:
 
     session.commit()
     return normalized
+
+
+def score_economic(session: Session, limit: int = 20) -> dict[str, int]:
+    """Expensive-tier: NSI point-in-polygon intersection against the MMI
+    contour footprint for earthquake's economic axis. Kept separate from
+    normalisation and guarded the same way as wildfire's score_events() -
+    only (re)scores an event that's never been scored or whose footprint
+    changed since it last was. Humanitarian score is untouched here - it's
+    already set from PAGER's own exposure data (cheap pass) and NSI's
+    population figure would be a worse substitute for it, not an
+    improvement, so this only ever writes economic_score, overall_score,
+    confidence and scored_at."""
+    now = datetime.now(timezone.utc)
+    # footprint_geojson filtered in Python, not SQL - a JSON column holding
+    # Python None gets stored as the JSON *value* null by default in
+    # SQLAlchemy, not SQL NULL, so `.is_not(None)` at the query level
+    # matches every row regardless of whether it has real geometry (caught
+    # live, 2026-08-26: it silently treated all ~400 earthquakes as
+    # candidates instead of the ~4 with an actual contour). Matches
+    # nifc.py's score_events(), which never had this bug because it never
+    # filtered on footprint_geojson at the SQL level to begin with.
+    candidates = session.execute(select(Event).where(Event.peril == "earthquake")).scalars().all()
+    needs_scoring = [
+        e
+        for e in candidates
+        if e.footprint_geojson
+        and (e.scored_at is None or (e.last_updated is not None and e.last_updated > e.scored_at))
+    ]
+
+    scored = 0
+    failed = 0
+    for event in needs_scoring[:limit]:
+        try:
+            exposure = nsi.summarize_exposure(event.footprint_geojson)
+        except httpx.HTTPError:
+            failed += 1
+            continue
+
+        event.economic_score = scoring.economic_score(exposure["replacement_cost_usd"])
+        event.overall_score = scoring.overall_score(event.humanitarian_score, event.economic_score)
+        event.confidence = (
+            f"humanitarian: PAGER exposure. economic: NSI intersection, "
+            f"{exposure['structure_count']} structures found"
+        )
+        event.scored_at = now
+        scored += 1
+
+    session.commit()
+    return {"scored": scored, "failed": failed, "remaining": max(0, len(needs_scoring) - scored)}

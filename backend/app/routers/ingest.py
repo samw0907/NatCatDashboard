@@ -18,10 +18,11 @@ def get_db():
 
 
 @router.post("/ingest/usgs")
-def ingest_usgs(days: int = 14, db: Session = Depends(get_db)):
+def ingest_usgs(days: int = 14, score_limit: int = 20, db: Session = Depends(get_db)):
     features = usgs.fetch_summary(days=days)
     result = usgs.upsert_events(db, features)
     result["normalized"] = usgs.normalize_to_events(db)
+    result["economic_scoring"] = usgs.score_economic(db, limit=score_limit)
     return result
 
 

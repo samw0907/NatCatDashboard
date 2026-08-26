@@ -41,11 +41,16 @@ class RawUsgsEvent(Base):
     # USGS actually said is always recoverable, not just our interpretation.
     raw_properties: Mapped[dict] = mapped_column(JSON)
 
-    # PAGER losspager enrichment - populated only when `alert` is not null
-    # (see fetch_losspager_enrichment in usgs.py for the screening logic).
+    # PAGER losspager enrichment, plus the ShakeMap MMI contour - both
+    # populated only when `alert` is not null (see fetch_enrichment in
+    # usgs.py for the screening logic and how the contour is built).
     pager_total_fatalities: Mapped[int | None] = mapped_column(Integer)
     pager_total_economic_loss_usd: Mapped[int | None] = mapped_column(BigInteger)
     pager_population_exposure: Mapped[dict | None] = mapped_column(JSON)
+    # Polygon (GeoJSON) for the area shaking at or above MIN_FOOTPRINT_MMI,
+    # built from ShakeMap's contour lines - null if no shakemap product, or
+    # no contour reaches that intensity.
+    mmi_contour_geojson: Mapped[dict | None] = mapped_column(JSON)
     enrichment_fetched_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     first_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
