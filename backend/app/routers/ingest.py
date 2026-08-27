@@ -36,10 +36,11 @@ def ingest_nifc(score_limit: int = 20, db: Session = Depends(get_db)):
 
 
 @router.post("/ingest/nhc")
-def ingest_nhc(db: Session = Depends(get_db)):
+def ingest_nhc(score_limit: int = 20, db: Session = Depends(get_db)):
     storms = nhc.fetch_current_storms()
     result = nhc.upsert_storms(db, storms)
     result["normalized"] = nhc.normalize_to_events(db)
+    result["scoring"] = nhc.score_events(db, limit=score_limit)
 
     rss_items = nhc.fetch_rss_items()
     result["rss"] = nhc.upsert_rss_items(db, rss_items)

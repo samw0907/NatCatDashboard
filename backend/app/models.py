@@ -75,10 +75,15 @@ class RawNhcStorm(Base):
     movement_speed_kt: Mapped[float | None] = mapped_column(Float)
     advisory_num: Mapped[str | None] = mapped_column(String)
     last_update: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    # Full raw storm object, including every GIS product URL
-    # (track/cone/wind-radii/surge KMZ+ZIP links) - not parsed out into
-    # columns since none are fetched yet (expensive-enrichment tier,
-    # deferred), but kept so a later phase can read them straight from here.
+    # Polygon (GeoJSON) for the current wind field at the lowest available
+    # speed threshold (broadest extent, e.g. 34kt if present) - from the
+    # initialWindExtent shapefile, current radii not forecast, staying
+    # consistent with earthquake/wildfire representing current state.
+    wind_radii_geojson: Mapped[dict | None] = mapped_column(JSON)
+    # Full raw storm object, including every other GIS product URL
+    # (track/cone/surge KMZ+ZIP links) - not parsed out into columns since
+    # none are fetched yet, but kept so a later phase can read them
+    # straight from here.
     raw_properties: Mapped[dict] = mapped_column(JSON)
 
     first_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))

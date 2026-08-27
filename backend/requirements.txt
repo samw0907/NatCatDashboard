@@ -8,3 +8,5 @@ psycopg2-binary
 httpx
 shapely
 pyproj
+pyogrio
+geopandas

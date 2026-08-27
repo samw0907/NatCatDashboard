@@ -1,14 +1,20 @@
 # backend/app/nhc.py
 
+import tempfile
 import xml.etree.ElementTree as ET
 from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
+from pathlib import Path
 from typing import Any
 
+import geopandas as gpd
 import httpx
+import pyogrio
+from shapely.geometry import mapping
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from . import nsi, scoring
 from .models import Event, RawNhcRssItem, RawNhcStorm
 
 CURRENT_STORMS_URL = "https://www.nhc.noaa.gov/CurrentStorms.json"
@@ -59,6 +65,50 @@ def fetch_current_storms() -> list[dict]:
     return resp.json().get("activeStorms", [])
 
 
+def fetch_wind_radii_footprint(storm: dict) -> dict | None:
+    """Fetch the storm's current wind radii shapefile (initialWindExtent -
+    current radii, not the forecast, staying consistent with earthquake/
+    wildfire representing current state) and return the polygon for the
+    lowest available wind-speed threshold (broadest extent, e.g. 34kt if
+    present) as GeoJSON - analogous to earthquake's MMI 4+ threshold.
+
+    Downloaded to a temp file rather than read directly over HTTP via
+    GDAL's /vsizip/vsicurl/ virtual filesystem - that combination took 30+
+    seconds for a file under 4KB in testing, too slow to be practical for
+    what's normally a handful of active storms. A plain download plus a
+    local read is fast and reliable.
+
+    Returns None if there's no wind radii product yet (common for a very
+    new or very weak system)."""
+    zip_url = storm.get("initialWindExtent", {}).get("zipFile")
+    if not zip_url:
+        return None
+
+    resp = httpx.get(zip_url, timeout=30)
+    resp.raise_for_status()
+
+    with tempfile.NamedTemporaryFile(suffix=".zip", delete=False) as f:
+        f.write(resp.content)
+        temp_path = f.name
+
+    try:
+        vsi_path = f"/vsizip/{temp_path}"
+        layer_name = next(
+            (name for name, geom_type in pyogrio.list_layers(vsi_path) if "initialradii" in name.lower()),
+            None,
+        )
+        if layer_name is None:
+            return None
+        gdf = gpd.read_file(vsi_path, layer=layer_name)
+    finally:
+        Path(temp_path).unlink(missing_ok=True)
+
+    if gdf.empty or "RADII" not in gdf.columns:
+        return None
+    gdf = gdf.sort_values("RADII")
+    return mapping(gdf.geometry.iloc[0])
+
+
 def parse_storm(storm: dict) -> dict[str, Any]:
     return {
         "id": storm["id"],
@@ -77,12 +127,26 @@ def parse_storm(storm: dict) -> dict[str, Any]:
 
 
 def upsert_storms(session: Session, storms: list[dict]) -> dict[str, int]:
+    """Fetches the wind radii footprint for every storm on every poll -
+    unlike earthquake/wildfire's volumes, active storm counts are always
+    small (typically 0-5 globally), so this doesn't need the same
+    cheap-screen/expensive-enrich split; a failed footprint fetch never
+    overwrites one already stored from a previous poll."""
     now = datetime.now(timezone.utc)
     fetched = 0
+    footprint_failed = 0
 
     for storm in storms:
         fields = parse_storm(storm)
         existing = session.get(RawNhcStorm, fields["id"])
+
+        try:
+            footprint = fetch_wind_radii_footprint(storm)
+        except httpx.HTTPError:
+            footprint = None
+            footprint_failed += 1
+        fields["wind_radii_geojson"] = footprint or (existing.wind_radii_geojson if existing else None)
+
         fields["last_polled_at"] = now
         fields["first_seen_at"] = existing.first_seen_at if existing else now
 
@@ -90,15 +154,18 @@ def upsert_storms(session: Session, storms: list[dict]) -> dict[str, int]:
         fetched += 1
 
     session.commit()
-    return {"fetched": fetched}
+    return {"fetched": fetched, "footprint_failed": footprint_failed}
 
 
 def normalize_to_events(session: Session) -> int:
     """Normalise every row in raw_nhc_storms into the unified events table.
-    Like earthquake, no real footprint geometry yet - a storm's track cone
-    and wind radii are the natural footprint, and those are expensive-tier
-    GIS product downloads (linked in raw_properties, not fetched here),
-    deferred the same way ShakeMap contours are for earthquake."""
+    Wind radii footprint (fetched in upsert_storms) is set here, same as
+    wildfire's perimeter. Scoring is expensive-tier (NSI intersection, both
+    axes - wind has no PAGER-equivalent published baseline for humanitarian
+    the way earthquake does) and runs separately via score_events() - not
+    computed here, and preserved rather than reset on every poll (same fix
+    already applied to wildfire's normalize_to_events after the same bug
+    was caught there)."""
     now = datetime.now(timezone.utc)
     raw_rows = session.execute(select(RawNhcStorm)).scalars().all()
     normalized = 0
@@ -116,14 +183,15 @@ def normalize_to_events(session: Session) -> int:
             last_updated=raw.last_update,
             longitude=raw.longitude,
             latitude=raw.latitude,
-            footprint_geojson=None,
+            footprint_geojson=raw.wind_radii_geojson,
             primary_metric_label="max_sustained_wind_kt",
             primary_metric_value=raw.intensity_kt,
             source_alert_level=None,
-            humanitarian_score=None,
-            economic_score=None,
-            overall_score=None,
-            confidence="not yet scored (Phase 3)",
+            humanitarian_score=existing.humanitarian_score if existing else None,
+            economic_score=existing.economic_score if existing else None,
+            overall_score=existing.overall_score if existing else None,
+            confidence=existing.confidence if existing else "not yet scored",
+            scored_at=existing.scored_at if existing else None,
             first_seen_at=existing.first_seen_at if existing else now,
             last_synced_at=now,
         )
@@ -132,6 +200,49 @@ def normalize_to_events(session: Session) -> int:
 
     session.commit()
     return normalized
+
+
+def score_events(session: Session, limit: int = 20) -> dict[str, int]:
+    """Expensive-tier scoring (NSI point-in-polygon intersection) for wind
+    events - both axes, since wind has no PAGER-equivalent published
+    humanitarian baseline the way earthquake does. Guarded the same way as
+    wildfire's score_events(): only (re)scores an event never scored or
+    whose footprint changed since. footprint_geojson is checked in Python,
+    not SQL - a JSON column holding Python None is stored as the JSON value
+    null, not SQL NULL, so a SQL-level null filter would silently match
+    every row (caught and fixed for earthquake's score_economic() on
+    2026-08-26 - same trap, avoided here from the start)."""
+    now = datetime.now(timezone.utc)
+    candidates = session.execute(select(Event).where(Event.peril == "wind")).scalars().all()
+    needs_scoring = [
+        e
+        for e in candidates
+        if e.footprint_geojson
+        and (e.scored_at is None or (e.last_updated is not None and e.last_updated > e.scored_at))
+    ]
+
+    scored = 0
+    failed = 0
+    for event in needs_scoring[:limit]:
+        try:
+            exposure = nsi.summarize_exposure(event.footprint_geojson)
+        except httpx.HTTPError:
+            failed += 1
+            continue
+
+        event.humanitarian_score = scoring.humanitarian_score(exposure["population_exposed"])
+        event.economic_score = scoring.economic_score(exposure["replacement_cost_usd"])
+        event.overall_score = scoring.overall_score(event.humanitarian_score, event.economic_score)
+        event.confidence = (
+            f"NSI intersection (wind radii footprint), {exposure['structure_count']} structures found"
+            if exposure["structure_count"] is not None
+            else "no footprint available"
+        )
+        event.scored_at = now
+        scored += 1
+
+    session.commit()
+    return {"scored": scored, "failed": failed, "remaining": max(0, len(needs_scoring) - scored)}
 
 
 # --- Per-basin RSS feeds ---
