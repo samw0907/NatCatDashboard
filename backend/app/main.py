@@ -4,7 +4,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from .config import get_settings
-from .routers import events, ingest
+from .routers import events, ingest, prune
 
 app = FastAPI(title="NatCatDashboard API")
 
@@ -18,6 +18,7 @@ app.add_middleware(
 
 app.include_router(ingest.router)
 app.include_router(events.router)
+app.include_router(prune.router)
 
 
 @app.get("/health")
