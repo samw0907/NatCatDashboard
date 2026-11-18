@@ -1,21 +1,33 @@
-# Secrets
+# Secrets - never commit credentials of any kind
 .env
-.env.local
+.env.*
 *.env
 !.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+credentials*.json
+service-account*.json
+secrets.*
+.netrc
+.aws/
+.railway/
 
-# Local planning/reference docs - kept on disk for context, not pushed to GitHub.
-# README.md is the only project doc that's tracked.
-NATCAT_TRIAGE_PROJECT_PLAN.md
-NATCAT_OPERATIONAL_WORKFLOW_RESEARCH.md
-NatCat_Data_Reliability_Reference.md
-DECISIONS.md
-PROGRESS.md
-PHASE0_VERIFICATION.md
+# Claude Code - personal/local settings (shared CLAUDE.md is tracked)
+.claude/settings.local.json
+CLAUDE.local.md
 
-# Phase 0 verification scripts - throwaway by design (see plan section 9),
-# kept on disk for re-running later, never pushed
+# Phase 0 verification scripts - throwaway by design, never pushed
 verification/
+
+# Data downloads and caches - large and regenerable, never committed
+data/
+*.tif
+*.tiff
+*.gpkg
+*.parquet
+*.zip
 
 # Python (backend)
 __pycache__/
