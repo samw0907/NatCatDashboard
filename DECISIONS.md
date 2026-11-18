@@ -112,6 +112,16 @@ rewritten neutrally: no company names, application history or confidential task
 content, with design choices kept and justified on their operational merits. A rule
 in `CLAUDE.md` keeps it that way. `verification/` stays ignored.
 
+## History rewrite to make the repo standalone (2026-11-18)
+**Issue:** the README in every commit before 2026-11-18 tied the project to a specific
+job application. The current files were already neutral, but older commits still
+showed the original wording.
+**Decision:** at Sam's explicit request, rewrite the README in all historical commits
+on `main` to the current neutral wording, and force-push once (`--force-with-lease`).
+Only README.md changed. Commit messages, authors, dates and the final tree are
+identical. A local backup bundle was taken first. This was a one-off exception: the
+standing rule against force-pushing or rewriting `main` (see `CLAUDE.md`) still applies.
+
 ## Data refresh after a 2.5-month gap: ingest before prune, scoring deferred (2026-11-14)
 **Issue:** nothing had polled since 2026-08-28. Running the prune first would have
 deleted everything, including wildfires that are still active, because presence-based
