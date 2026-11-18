@@ -20,6 +20,10 @@ class Settings(BaseSettings):
     database_url: str | None = None
     database_public_url: str | None = None
 
+    # Shared secret required in the X-Admin-Token header by every write
+    # endpoint (see auth.py). Unset means write endpoints are disabled.
+    admin_token: str | None = None
+
     model_config = SettingsConfigDict(env_file=ENV_FILE, env_file_encoding="utf-8", extra="ignore")
 
     @property

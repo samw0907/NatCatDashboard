@@ -12,8 +12,10 @@ settings = get_settings()
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_allowed_origins_list,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    # The browser frontend only ever reads. Write endpoints are called
+    # server-side with X-Admin-Token, never from a browser.
+    allow_methods=["GET"],
+    allow_headers=["Content-Type"],
 )
 
 app.include_router(ingest.router)

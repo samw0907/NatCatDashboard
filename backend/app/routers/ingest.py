@@ -4,9 +4,10 @@ from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
 from .. import gdacs, nhc, nifc, usgs
+from ..auth import require_admin_token
 from ..db import get_session
 
-router = APIRouter(prefix="/api")
+router = APIRouter(prefix="/api", dependencies=[Depends(require_admin_token)])
 
 
 def get_db():
