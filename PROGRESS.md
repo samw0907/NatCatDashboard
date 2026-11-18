@@ -48,8 +48,24 @@ real frontend, no building footprint analysis, no scheduled polling and no write
 - Git history was rewritten once (2026-11-18) to make the repo standalone. See
   `DECISIONS.md`. Any other clone made before that date should be re-cloned, not pulled.
 
+### Live backend status (checked 2026-11-18, 16:04 UTC) - needs attention
+- The deployed backend is **still running the pre-auth code**. Its `/openapi.json` has
+  no `X-Admin-Token` parameter, so the push of `3591f29` to `main` did not trigger a
+  Railway deploy, or the deploy has not finished. Find out whether the backend service
+  deploys from GitHub automatically or was deployed some other way.
+- **Every database-backed endpoint returns 500**, including the public
+  `GET /api/events`. `/health` (no database) returns 200. The local `.env` credentials
+  still connect fine (`alembic current` works), so the database itself is up. The most
+  likely cause is the deployed service holding stale database credentials, for example
+  after the password rotation. A redeploy, which re-reads Railway's variable
+  references, should fix it. Check the Railway deploy logs if not.
+- CI on GitHub passed for `3591f29` (tests on Python 3.13, frontend build, secret scan).
+
 ### Needs doing locally (Sam, at home) - in this order
 Cloud sessions cannot do any of these. Each one is marked done here once finished.
+0. **Redeploy the Railway backend from the latest `main`** (see "Live backend status"
+   above), ideally after setting `ADMIN_TOKEN` (items 1-2), so a single redeploy
+   picks up the new code, the token and fresh database credentials together.
 1. **Create the admin token.** Run this yourself and don't paste the output into any
    chat: `python -c "import secrets; print(secrets.token_urlsafe(48))"`
 2. **Railway:** add it as `ADMIN_TOKEN` in the backend service's Variables. This
