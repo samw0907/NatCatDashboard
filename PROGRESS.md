@@ -20,46 +20,87 @@ real frontend, no building footprint analysis, no scheduled polling and no write
 - **Phase 2** (NIFC wildfire, NHC wind, GDACS raw-only): done.
 - **Phase 3** (scoring on both axes for all three perils): done.
 - **Rolling-window pruning**: built. It is a manual trigger, not automatic.
+- **Security hardening and cloud readiness** (2026-11-18): token-gated write
+  endpoints, local data CLI, pinned dependencies, offline test suite, CI. Done.
 - **Phase 4** (on-demand building footprint drill-down, `building_analysis` table): not started.
 - **Phase 5** (map + ranked table + event detail, deploy frontend to S3/CloudFront): not started.
 - **Phase 6** (write-up): not started.
 
-### Infrastructure (checked 2026-11-14)
-- Railway backend is live at https://natcatdashboard-production.up.railway.app,
-  running the latest `main` commit. `/health` and `/api/events` respond.
-- Railway Postgres is reachable. Alembic is at head (`71614cfed4d5`), in sync with the code.
-- Local backend (`uvicorn`, port 8000) and frontend (`vite`, port 5173) both start and
-  work. CORS for localhost:5173 is correct. `npm run build` is clean.
+### Infrastructure and security (updated 2026-11-18)
+- Railway backend: https://natcatdashboard-production.up.railway.app. Railway Postgres
+  is reachable. Alembic is at head (`71614cfed4d5`), in sync with the code.
+- **Write endpoints are now token-gated** (`backend/app/auth.py`, merged 2026-11-18).
+  `POST /api/ingest/*` and `POST /api/prune` need `X-Admin-Token` matching
+  `ADMIN_TOKEN`; without a configured token they return 503 (fail closed). Read
+  endpoints stay public. Until Sam sets `ADMIN_TOKEN` on Railway, the live write
+  endpoints are simply disabled, which is the safe state. See "Needs doing locally".
+- CORS allows only `GET`. Dependencies are pinned in `backend/requirements.txt`.
+- Tests: 43 passing (`cd backend && python -m pytest -q`), fully offline against
+  `backend/tests/fixtures/` and in-memory SQLite. CI (`.github/workflows/ci.yml`) runs
+  them plus frontend lint and build and a gitleaks secret scan on every PR and push to
+  `main`.
+- Data operations from Sam's machine: `python -m app.cli` (see `CLAUDE.md`).
 - Local development points at the **Railway production database** via
-  `DATABASE_PUBLIC_URL`. There is no separate dev database.
-- No AWS resources exist for this project yet. The S3 bucket and CloudFront
-  distribution are not provisioned. Anything visible in AWS belongs to WildfireDashboard.
-- No tests exist yet (`backend/tests/` does not exist).
+  `DATABASE_PUBLIC_URL` in `.env`. There is no separate dev database. `.env` is local
+  only and has never been committed.
+- No AWS resources exist for this project yet. Anything visible in AWS belongs to
+  WildfireDashboard.
+- Git history was rewritten once (2026-11-18) to make the repo standalone. See
+  `DECISIONS.md`. Any other clone made before that date should be re-cloned, not pulled.
 
-### In progress: data refresh after a ~2.5-month gap
-Nothing had polled since 2026-08-28, so the database was entirely stale. On 2026-11-14:
-1. **Done:** all four sources were ingested with scoring disabled (`score_limit=0`), so
-   slow NSI calls weren't spent on rows about to be pruned. USGS fetched 403
-   (9 PAGER-enriched), NIFC 40 current fires, NHC 0 active storms (off-season),
-   GDACS 1.
-2. **Done:** the prune dry run. It would delete 346 USGS rows (exactly the August
-   set, all past 14 days), 199 NIFC (217 August fires minus 18 still in the current
-   feed), 1 NHC storm (Lala) plus 7 RSS items, and 5 GDACS rows. The numbers
-   reconcile with the before/after counts.
-3. **Awaiting Sam's go-ahead:** the real prune (`POST /api/prune?dry_run=false`).
-   It is destructive. Re-run the dry run first, since the numbers will have moved.
-   Then verify the counts directly against the database.
-4. **Then:** run the scoring passes in batches. About 40 wildfires need scoring at
-   roughly 30 seconds of NSI query each, plus about 3 earthquakes for the economic axis.
+### Needs doing locally (Sam, at home) - in this order
+Cloud sessions cannot do any of these. Each one is marked done here once finished.
+1. **Create the admin token.** Run this yourself and don't paste the output into any
+   chat: `python -c "import secrets; print(secrets.token_urlsafe(48))"`
+2. **Railway:** add it as `ADMIN_TOKEN` in the backend service's Variables. This
+   triggers a redeploy. Also check that the deploy built successfully with the newly
+   pinned `requirements.txt`. If the build fails, Railway keeps serving the previous,
+   unprotected version, so this check matters.
+3. **Check the live endpoints are protected:**
+   `curl -i -X POST https://natcatdashboard-production.up.railway.app/api/prune`
+   should return 401 (or 503 if the token isn't set yet). A 200 means old code is still
+   live (a dry run, so nothing is deleted); check the Railway deploy logs.
+4. **Finish the Postgres password rotation** (in progress). Then put the new
+   `DATABASE_PUBLIC_URL` in the local `.env`, confirm
+   `GET https://natcatdashboard-production.up.railway.app/api/events` still returns
+   200 (redeploy the backend if not), and tell Claude the date so it can be logged in
+   `DECISIONS.md`. Also add `ADMIN_TOKEN` to the local `.env` if you want to call the
+   API's write endpoints; the CLI doesn't need it.
+5. **GitHub repo settings:** enable Secret scanning and Push protection (Settings >
+   Code security). Add a ruleset on `main` that blocks force pushes and deletion.
+   Requiring PRs is optional: local sessions push to `main` directly, so a "require a
+   PR" rule would also block those.
+6. **Claude Code cloud environment:** give the Claude GitHub app access to this repo.
+   Allow network access to the package registries (PyPI, npm) so sessions can install
+   dependencies. Add **no** environment variables or secrets to the cloud environment.
+   Setup commands: `cd backend && pip install -r requirements-dev.txt` and
+   `cd frontend && npm ci`.
+7. **Data refresh.** It writes to production; Claude needs explicit approval, or run it
+   yourself from `backend/` with the venv active:
+   - `python -m app.cli ingest all --score-limit 0`. Re-ingest first: presence-based
+     pruning reads the last poll time, so pruning on a stale poll would wrongly delete
+     still-active wildfires.
+   - `python -m app.cli prune`. A dry run. Sanity-check the counts: only rows older
+     than 14 days (USGS/GDACS), or absent from today's feed (NIFC/NHC).
+   - `python -m app.cli prune --execute`
+   - `python -m app.cli score nifc --limit 20`, repeated until `remaining` is 0
+     (about 30 seconds per fire), then `score usgs` and `score nhc`.
+8. When happy with the history rewrite, delete the local backup
+   `C:\Users\swill\dev\NatCatDashboard-pre-rewrite.bundle`. It contains the old wording.
 
-After the prune the live picture will be roughly 403 earthquakes, 40 wildfires,
-0 storms and 1 GDACS record.
+### Last known data state (2026-11-14)
+Ingest on 2026-11-14 brought in 403 earthquakes (9 PAGER-enriched), 40 current
+wildfires, 0 storms (off-season) and 1 GDACS record, alongside the stale August rows.
+A prune dry run then reconciled exactly: it would remove 346 USGS rows (the August
+set), 199 NIFC (217 August fires minus 18 still burning), 1 NHC storm plus 7 RSS items,
+and 5 GDACS rows. The real prune has **not** run yet. Item 7 above re-does this from a
+fresh ingest.
 
 ### Open decisions (plan section 12)
 | # | Status |
 |---|---|
 | O1 rolling window | Resolved 2026-08-28: 14 days by age for USGS/GDACS; by presence (3 days wildfire, 2 days wind) |
-| O2 poll frequency | **Open.** Nothing is scheduled; every ingest is a manual POST |
+| O2 poll frequency | **Open.** Nothing is scheduled; every ingest is a manual trigger. A scheduler would call the token-gated endpoints or the CLI |
 | O3 enrichment screening | Resolved: fetch PAGER/ShakeMap only when USGS `alert` is non-null |
 | O4 humanitarian formulation | Resolved 2026-08-25: log scale, 10,000 people exposed = 50 |
 | O5 economic formulation | Resolved 2026-08-25: log scale, PCS $25M = 50, NSI replacement cost. Occupancy-mix weighting not used |
@@ -72,45 +113,39 @@ After the prune the live picture will be roughly 403 earthquakes, 40 wildfires,
 | O12 repo name/structure | Resolved: `NatCatDashboard`, flat `backend/` + `frontend/` |
 | O13 plain-language summary | **Open.** Phase 5 |
 | O14 use of GDACS data | **Deferred.** Data accumulates in the raw table |
-| O15 back-fill/retain older data if live data is thin | **Open, raised 2026-11-14.** Live data stays primary. Decide after seeing post-refresh data and checking what history each source holds |
+| O15 back-fill/retain older data if live data is thin | **Open, raised 2026-11-14.** Live data stays primary. Decide after the refresh shows what live data looks like and after checking what history each source holds |
 
 ### Known issues
-- No scheduled polling, and pruning is manual.
+- No scheduled polling, and pruning is manual (O2).
 - USGS ingest took about 7 minutes from a local machine, mostly per-row
-  `session.get`/`merge` round trips over the public Railway proxy. Local
-  `/api/events` takes about 8 seconds for the same reason, and it returns every row
-  with no pagination.
+  `session.get`/`merge` round trips over the public Railway proxy. `GET /api/events`
+  returns every row with no pagination, and takes about 8 seconds locally.
 - A footprint with zero exposure scores `None`, not 0, because the log scale is
-  undefined at 0. "NSI intersection, 0 structures found" events therefore rank
-  alongside genuinely unscored ones. This is a design question to raise with Sam
-  (related to O7), not a bug to fix silently.
-- Some old rows still carry confidence strings from earlier code (e.g. "not yet
-  scored (Phase 3)"). These clear once the prune runs.
-- NSI bbox queries for very large wildfires (70,000+ acres) are untested at scale
-  and may hit the 60-second timeout.
+  undefined at 0 (pinned by a test in `test_scoring.py`). "NSI intersection, 0
+  structures found" events therefore rank alongside genuinely unscored ones. This is a
+  design question for Sam (related to O7), not a bug to fix silently.
+- Some old rows still carry confidence strings from earlier code (e.g. "not yet scored
+  (Phase 3)"). They clear once the prune runs.
+- NSI bbox queries for very large wildfires (70,000+ acres) are untested at scale and
+  may hit the 60-second timeout.
 - NHC `event_time` is the first time a storm was seen by our poll, not storm genesis.
 - The USGS US bounding box misses the westernmost Aleutians (antimeridian).
 - The NSI licensing position for redistribution (not read access) is not fully resolved.
-- **Open item: Railway Postgres password rotation.** A dev database credential was
-  shared in a chat session on 2026-08-25 while fixing a malformed connection string
-  (never committed). Sam is rotating the password himself in the Railway dashboard.
-  Claude must not touch Railway or the database for this. Once Sam confirms it's done,
-  record the rotation date in `DECISIONS.md` (no values) and remove this item.
+- The Railway Postgres password rotation is in progress (local item 4).
 - There is no `.env.example`, by design. The required variable names are in `CLAUDE.md`.
 
-### Next 3 tasks
-1. **Finish the data refresh:** with Sam's go-ahead, re-run the prune dry run, run it
-   for real, verify against the database, then run the scoring passes in batches.
-2. **Add backend tests with saved fixtures:** create `backend/tests/fixtures/` from
-   small trimmed real responses (USGS feature + losspager + cont_mmi, NIFC perimeter,
-   NHC CurrentStorms, NSI sample, GDACS), and test the parse, normalise, scoring and
-   pruning logic without network access. This is needed so cloud sessions can work.
-3. **Assess data sufficiency for O15:** look at what the refreshed live queue
-   actually contains, and check what history each source can serve (USGS catalogue
-   by date range, NIFC year-to-date/archive perimeters, NHC advisory archive, GDACS
-   date search). Present the options to Sam before building anything. After that,
-   the main build task is Phase 5 (frontend wiring), together with deciding O2
-   (scheduling).
+### Next 3 tasks (all cloud-friendly)
+1. **Phase 5 backend:** add sorting by axis (`humanitarian`/`economic`/`overall`) and
+   a peril filter to `GET /api/events` (plan section 8.3). Add a single-event detail
+   endpoint returning the footprint and score breakdown, keeping the list endpoint
+   light (no footprints in the list). Tests in `backend/tests/` against SQLite.
+2. **Phase 5 frontend:** ranked, sortable table plus a maplibre map reading
+   `GET /api/events`. For offline development, add a small saved sample of the API's
+   output as a frontend fixture, and keep the API base URL configurable.
+3. **Decisions to put to Sam, not build:** present options with pros and cons for
+   O15 (whether and how to supplement thin live data, after checking what history each
+   source serves) and for how zero-exposure events should rank and display (O7).
+   Record the options in the plan's section 12 and wait for Sam's choice.
 
 ---
 

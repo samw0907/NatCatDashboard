@@ -214,3 +214,55 @@ was caught; reset directly once identified.
 column in this codebase needs the same care - either filter in Python instead, or
 declare the column with `JSON(none_as_null=True)` if a genuine need for SQL-level
 filtering comes up.
+
+## Write endpoints require an admin token, failing closed (2026-11-18)
+**Issue:** the ingest and prune endpoints on the live Railway backend needed no
+authentication, and the public repo documents them. Anyone could trigger expensive
+ingests, or call `POST /api/prune?dry_run=false` and delete data.
+**Options considered:** (a) a shared secret in a request header on write endpoints
+only, the pattern already noted in "Authentication" above; (b) removing the write
+endpoints from the deployed API entirely and running data operations only from a local
+CLI; (c) a full login/session system.
+**Decision:** (a), plus the CLI from (b) as the normal way to run data operations
+locally. `backend/app/auth.py` checks `X-Admin-Token` against `ADMIN_TOKEN` with a
+constant-time comparison. It **fails closed**: if `ADMIN_TOKEN` is unset or shorter
+than 32 characters, write endpoints return 503 rather than staying open, so a
+misconfigured deploy is safe by default. Read endpoints stay public, since the queue is
+a public read-only view (plan D14). (c) is out of proportion for one operator. Keeping
+the token-gated endpoints, rather than removing them, preserves a route for future
+scheduled polling (O2) to call. CORS was tightened to `GET` only, since the browser
+frontend never writes.
+
+## Local data-operations CLI (2026-11-18)
+**Decision:** `python -m app.cli ingest|score|prune` runs the same functions as the
+endpoints, directly against the database in the local `.env`. Data operations then
+need neither the API nor the token from Sam's machine. Prune is a dry run unless
+`--execute` is passed, matching the endpoint's safe default.
+
+## Pinned dependencies (2026-11-18)
+**Issue:** `requirements.txt` listed bare package names, so a cloud session, CI, or
+Railway's next build could silently resolve different versions from the set verified
+locally.
+**Decision:** pin the direct dependencies to exact versions known to work (verified by
+the test suite on Python 3.14 locally and 3.13 in CI). `requirements-dev.txt` adds
+pytest on top. Transitive dependencies are not locked; revisit with a lock tool only if
+drift actually causes a problem.
+
+## Offline test suite with saved real responses (2026-11-18)
+**Issue:** there were no tests. Cloud sessions may not reach the hazard feeds, and must
+never reach the production database.
+**Decision:** a pytest suite in `backend/tests/` running against trimmed real responses
+(copied from the Phase 0 verification captures into `backend/tests/fixtures/`) and
+in-memory SQLite. Network calls are blocked by default: any unexpected `httpx.get`
+fails the test. `conftest.py` sets the database URLs to SQLite before the app is
+imported, so even a machine whose `.env` points at production cannot be touched by a
+test run. The NSI fixture keeps only the fields the code reads. The suite covers
+parsing, normalisation, score preservation, NSI point-in-polygon counting, the
+presence-based pruning rule (a long-burning wildfire must survive), and the auth gate.
+A check confirmed the auth tests fail if the guard is removed.
+
+## CI on GitHub Actions (2026-11-18)
+**Decision:** run backend tests, frontend lint and build, and a gitleaks secret scan on
+every PR and push to `main` (`.github/workflows/ci.yml`). No repository secrets are
+used. This gives Sam a pass/fail signal on cloud-session PRs he reviews from his phone,
+and a second line of defence against a committed credential.

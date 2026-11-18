@@ -78,12 +78,15 @@ Details in `scoring.py` and plan section 6.
 
 ## API
 
-| Endpoint | Purpose |
-|---|---|
-| `GET /health` | Liveness check |
-| `GET /api/events` | Unified events, ranked by overall score (nulls last) |
-| `POST /api/ingest/usgs` `nifc` `nhc` `gdacs` | Fetch, store, normalise and score one source. Manual trigger; nothing is scheduled yet |
-| `POST /api/prune` | Rolling-window pruning. `dry_run=true` by default; deletion only when passed `false` |
+| Endpoint | Access | Purpose |
+|---|---|---|
+| `GET /health` | Public | Liveness check |
+| `GET /api/events` | Public | Unified events, ranked by overall score (nulls last) |
+| `POST /api/ingest/usgs` `nifc` `nhc` `gdacs` | Admin token | Fetch, store, normalise and score one source. Manual trigger; nothing is scheduled yet |
+| `POST /api/prune` | Admin token | Rolling-window pruning. `dry_run=true` by default; deletion only when passed `false` |
+
+Write endpoints require an `X-Admin-Token` header matching the server's `ADMIN_TOKEN`.
+If no token is configured, they are disabled (HTTP 503).
 
 ## Status
 
@@ -97,8 +100,8 @@ scheduling yet.
   (frontend and deployment), Phase 6 (write-up).
 - **In progress**: refreshing the live data after a gap in polling (ingest done; prune
   and rescoring pending).
-- **Known gaps**: no scheduled polling (ingest is a manual POST); pruning is manual;
-  no automated tests yet; US bounding box misses the westernmost Aleutians.
+- **Known gaps**: no scheduled polling (ingest is a manual trigger); pruning is
+  manual; US bounding box misses the westernmost Aleutians.
 
 See [`PROGRESS.md`](PROGRESS.md) for the current handoff and build checklist, and
 [`DECISIONS.md`](DECISIONS.md) for the reasoning behind anything that involved a real
@@ -106,18 +109,29 @@ choice.
 
 ## Local development
 
-Requires a Postgres `DATABASE_URL` (or `DATABASE_PUBLIC_URL`) in a `.env` file at the
-repo root; there is no example file. Point it at a database you're happy to modify:
-`alembic upgrade head`, the ingest endpoints and `POST /api/prune` all write to it.
+The tests need nothing but the Python dependencies: they run offline against saved
+API responses and an in-memory database.
+
+Running the app needs a Postgres `DATABASE_URL` (or `DATABASE_PUBLIC_URL`) in a
+`.env` file at the repo root, plus `ADMIN_TOKEN` (32+ characters) if the write
+endpoints should work. There is no example file, and `.env` is never committed. Point
+it at a database you're happy to modify: `alembic upgrade head`, the ingest and prune
+endpoints, and `python -m app.cli` all write to it.
 
 ```
 # Backend
 cd backend
 python -m venv .venv
 .venv/Scripts/activate      # Windows
-pip install -r requirements.txt
+pip install -r requirements-dev.txt
+python -m pytest -q
 alembic upgrade head
 uvicorn app.main:app --reload
+
+# Data operations from the command line (same database as .env)
+python -m app.cli ingest all --score-limit 0
+python -m app.cli prune              # dry run
+python -m app.cli prune --execute
 
 # Frontend
 cd frontend

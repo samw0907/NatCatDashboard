@@ -37,11 +37,15 @@ Optional background: [`NatCat_Data_Reliability_Reference.md`](NatCat_Data_Reliab
   at the repo root (gitignored) or from Railway service variables. There is no
   `.env.example` by design. Required variable names: `DATABASE_URL` or
   `DATABASE_PUBLIC_URL` (one is required; the public one is preferred when both are
-  set), plus optional `CORS_ALLOWED_ORIGINS` (default `http://localhost:5173`) and
+  set), `ADMIN_TOKEN` (required for any write endpoint to work; see Security below),
+  plus optional `CORS_ALLOWED_ORIGINS` (default `http://localhost:5173`) and
   `ENVIRONMENT` (default `development`). The frontend reads `VITE_API_BASE_URL`
   (default `http://localhost:8000`).
-- Cloud sessions may not have network access to the hazard feeds. Tests should use
-  saved sample responses in `backend/tests/fixtures/` rather than live APIs.
+- Cloud sessions may not have network access to the hazard feeds. Tests use saved
+  real responses in `backend/tests/fixtures/` and in-memory SQLite, never live APIs or
+  a real database. Run `python -m pytest -q` from `backend/` before every commit, and
+  add or extend tests for any behaviour you change. CI runs the same tests, a frontend
+  build and a secret scan on every PR.
 - At the end of every session, update `PROGRESS.md` (done / in progress / next 3
   tasks) and log any real choice in `DECISIONS.md` with its reasoning. This is the
   only context that carries between sessions.
@@ -52,6 +56,32 @@ Optional background: [`NatCat_Data_Reliability_Reference.md`](NatCat_Data_Reliab
   upgrade`, ingest or prune call touches production.
 - No significant design or methodology decision is made unilaterally. Present options
   with pros and cons and let Sam decide; add new ones to the plan's section 12.
+
+## Security
+
+- `.env` is local only and must never be committed, printed or read into a session.
+  Cloud sessions have no `.env` and no database credentials, by design.
+- Every endpoint that writes to the database (`POST /api/ingest/*`, `POST /api/prune`)
+  requires an `X-Admin-Token` header matching the server's `ADMIN_TOKEN`
+  (`backend/app/auth.py`). If `ADMIN_TOKEN` is unset or shorter than 32 characters,
+  write endpoints return 503: they fail closed. Read endpoints (`GET /health`,
+  `GET /api/events`) stay public. Any new write endpoint must use the same dependency,
+  with a test in `backend/tests/test_auth.py`.
+- CORS allows only `GET` from the configured origins. The browser frontend never
+  writes.
+- Dependencies are pinned in `backend/requirements.txt`. Change versions deliberately,
+  in their own commit.
+
+## What runs where
+
+- **Cloud sessions:** code, tests, docs, frontend work, PRs. No database access and no
+  data operations.
+- **Local only (Sam's machine):** anything touching real data. That means ingest,
+  scoring, prune, Alembic migrations and checks against the live database, via
+  `python -m app.cli` from `backend/` (uses the local `.env`). Also Railway and
+  GitHub settings. When a cloud session's work needs one of these, add it to the
+  "Needs doing locally" list in `PROGRESS.md` with exact commands, rather than trying
+  to do it.
 
 ## Style
 
@@ -66,8 +96,11 @@ Optional background: [`NatCat_Data_Reliability_Reference.md`](NatCat_Data_Reliab
 
 - `backend/` - FastAPI + SQLAlchemy + Alembic, Python. One module per source
   (`usgs.py`, `nifc.py`, `nhc.py`, `gdacs.py`), `nsi.py` for exposure,
-  `scoring.py`, `pruning.py`, routers in `app/routers/`. Plain Postgres on Railway;
+  `scoring.py`, `pruning.py`, `auth.py` for the write-endpoint token, `cli.py` for
+  local data operations, routers in `app/routers/`. Plain Postgres on Railway;
   geometry stored as GeoJSON in JSON columns, processed with shapely.
+- `backend/tests/` - pytest suite; `fixtures/` holds trimmed real API responses.
+- `.github/workflows/ci.yml` - tests, frontend lint and build, gitleaks secret scan.
 - `frontend/` - React + TypeScript + Vite + maplibre-gl. Currently a placeholder page.
 - `verification/` - gitignored Phase 0 throwaway scripts and raw responses (local only).
 
@@ -76,8 +109,15 @@ Optional background: [`NatCat_Data_Reliability_Reference.md`](NatCat_Data_Reliab
 ```
 # Backend (from backend/)
 python -m venv .venv && .venv/Scripts/activate   # Windows; source .venv/bin/activate elsewhere
-pip install -r requirements.txt
+pip install -r requirements-dev.txt              # runtime deps plus pytest
+python -m pytest -q                              # offline; no .env or network needed
 uvicorn app.main:app --reload                    # needs DATABASE_URL or DATABASE_PUBLIC_URL
+
+# Local data operations (Sam's machine only - writes to the database in .env)
+python -m app.cli ingest all --score-limit 0     # or: ingest usgs|nifc|nhc|gdacs
+python -m app.cli score nifc --limit 20          # expensive NSI scoring pass
+python -m app.cli prune                          # dry run, deletes nothing
+python -m app.cli prune --execute                # deletes - review the dry run first
 
 # Frontend (from frontend/)
 npm install
