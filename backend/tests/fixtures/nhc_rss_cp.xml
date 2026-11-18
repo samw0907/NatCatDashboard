@@ -1,0 +1,161 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0"
+  xmlns:dc="http://purl.org/dc/elements/1.1/"
+  xmlns:georss="http://www.georss.org/georss"
+  xmlns:gml="http://www.opengis.net/gml"
+  xmlns:nhc="https://www.nhc.noaa.gov">
+  <channel>
+    <pubDate>Tue, 25 Aug 2026 14:00:50 GMT</pubDate>
+    <title>Central Pacific Hurricane Center GIS Data (Central North Pacific)</title>
+    <description>Central North Pacific Basin GIS Data for Active Tropical Cyclones</description>
+    <link>https://www.nhc.noaa.gov/gis/</link>
+    <copyright>none</copyright>
+    <managingEditor>nhcwebmaster@noaa.gov (NHC Webmaster)</managingEditor>
+    <language>en-us</language>
+    <webMaster>nhcwebmaster@noaa.gov (NHC Webmaster)</webMaster>
+    <image>
+      <url>https://www.nhc.noaa.gov/gifs/xml_logo_nhc.gif</url>
+      <link>https://www.nhc.noaa.gov/</link>
+      <title>Central Pacific Hurricane Center GIS Data (Central North Pacific)</title>
+      <description>NOAA logo</description>
+      <width>95</width>
+      <height>45</height>
+    </image>
+    <item>
+      <title>Summary - Tropical Storm Lala (CP2/CP012026)</title>
+      <guid isPermaLink="false">summary-cp012026-202608250848</guid>
+      <pubDate>Tue, 25 Aug 2026 08:48:27 GMT</pubDate>
+      <author>nhcwebmaster@noaa.gov (NHC Webmaster)</author>
+      <link>https://www.nhc.noaa.gov/text/HFOTCPCP2.shtml</link>
+      <description>...LALA SLIGHTLY WEAKER... As of 11:00 PM HST Mon Aug 24 the center of Lala was located near 34.7, -175.9 with movement NW at 6 mph. The minimum central pressure was 994 mb with maximum sustained winds of about 50 mph.</description>
+      <nhc:Cyclone>
+        <nhc:center>34.7, -175.9</nhc:center>
+        <nhc:type>Tropical Storm</nhc:type>
+        <nhc:name>Lala</nhc:name>
+        <nhc:wallet>CP2</nhc:wallet>
+        <nhc:atcf>CP012026</nhc:atcf>
+        <nhc:datetime>11:00 PM HST Mon Aug 24</nhc:datetime>
+        <nhc:movement>NW at 6 mph</nhc:movement>
+        <nhc:pressure>994 mb</nhc:pressure>
+        <nhc:wind>50 mph</nhc:wind>
+        <nhc:headline>...LALA SLIGHTLY WEAKER...</nhc:headline>
+      </nhc:Cyclone>
+    </item>
+    <item>
+      <title>Advisory #052 Forecast [shp] - Tropical Storm Lala (CP2/CP012026)</title>
+      <description>Forecast Track, Cone of Uncertainty, Watches/Warnings. Shapefile last updated Tue, 25 Aug 2026 08:50:46 GMT</description>
+      <pubDate>Tue, 25 Aug 2026 08:50:46 GMT</pubDate>
+      <link>https://www.nhc.noaa.gov/gis/forecast/archive/cp012026_5day_052.zip</link>
+      <guid isPermaLink="false">gis-forecast-shp-cp012026-052-202608250850</guid>
+      <author>nhcwebmaster@noaa.gov (NHC Webmaster)</author>
+    </item>
+    <item>
+      <title>Advisory #052 Forecast Track [kmz] - Tropical Storm Lala (CP2/CP012026)</title>
+      <description>KMZ last updated Tue, 25 Aug 2026 08:50:43 GMT</description>
+      <pubDate>Tue, 25 Aug 2026 08:50:43 GMT</pubDate>
+      <link>https://www.nhc.noaa.gov/storm_graphics/api/CP012026_052adv_TRACK.kmz</link>
+      <guid isPermaLink="false">gis-track-kml-cp012026-052-202608250850</guid>
+      <author>nhcwebmaster@noaa.gov (NHC Webmaster)</author>
+    </item>
+    <item>
+      <title>Advisory #052 Cone of Uncertainty [kmz] - Tropical Storm Lala (CP2/CP012026)</title>
+      <description>KMZ last updated Tue, 25 Aug 2026 08:50:37 GMT</description>
+      <pubDate>Tue, 25 Aug 2026 08:50:37 GMT</pubDate>
+      <link>https://www.nhc.noaa.gov/storm_graphics/api/CP012026_052adv_CONE.kmz</link>
+      <guid isPermaLink="false">gis-cone-kml-cp012026-052-202608250850</guid>
+      <author>nhcwebmaster@noaa.gov (NHC Webmaster)</author>
+    </item>
+    <item>
+      <title>Advisory #052 Wind Field [shp] - Tropical Storm Lala (CP2/CP012026)</title>
+      <description>Initial and Forecast Surface Winds. Shapefile last updated Tue, 25 Aug 2026 08:51:04 GMT</description>
+      <pubDate>Tue, 25 Aug 2026 08:51:04 GMT</pubDate>
+      <link>https://www.nhc.noaa.gov/gis/forecast/archive/cp012026_fcst_052.zip</link>
+      <guid isPermaLink="false">gis-wind-shp-cp012026-052-202608250851</guid>
+      <author>nhcwebmaster@noaa.gov (NHC Webmaster)</author>
+    </item>
+    <item>
+      <title>Preliminary Best Track [shp] - Tropical Storm Lala (CP2/CP012026)</title>
+      <description>Track, Points, and Wind Swath. Shapefile last updated Tue, 25 Aug 2026 08:50:56 GMT</description>
+      <pubDate>Tue, 25 Aug 2026 08:50:56 GMT</pubDate>
+      <link>https://www.nhc.noaa.gov/gis/best_track/cp012026_best_track.zip</link>
+      <guid isPermaLink="false">gis-bt-shp-cp012026-052-202608250850</guid>
+      <author>nhcwebmaster@noaa.gov (NHC Webmaster)</author>
+    </item>
+    <item>
+      <title>Preliminary Best Track [kmz] - Tropical Storm Lala (CP2/CP012026)</title>
+      <description>KMZ last updated Tue, 25 Aug 2026 08:50:53 GMT</description>
+      <pubDate>Tue, 25 Aug 2026 08:50:53 GMT</pubDate>
+      <link>https://www.nhc.noaa.gov/gis/best_track/cp012026_best_track.kmz</link>
+      <guid isPermaLink="false">gis-btpts-kml-cp012026-052-202608250850</guid>
+      <author>nhcwebmaster@noaa.gov (NHC Webmaster)</author>
+    </item>
+    <item>
+      <title>Summary - Remnants of Moke (CP3/CP022026)</title>
+      <guid isPermaLink="false">summary-cp022026-202608250851</guid>
+      <pubDate>Tue, 25 Aug 2026 08:51:23 GMT</pubDate>
+      <author>nhcwebmaster@noaa.gov (NHC Webmaster)</author>
+      <link>https://www.nhc.noaa.gov/text/HFOTCPCP3.shtml</link>
+      <description>...MOKE IS NO LONGER A TROPICAL CYCLONE... ...THIS IS THE FINAL NHC ADVISORY... As of 11:00 PM HST Mon Aug 24 the center of Moke was located near 16.3, -164.1 with movement W at 14 mph. The minimum central pressure was 1006 mb with maximum sustained winds of about 35 mph.</description>
+      <nhc:Cyclone>
+        <nhc:center>16.3, -164.1</nhc:center>
+        <nhc:type>Remnants of</nhc:type>
+        <nhc:name>Moke</nhc:name>
+        <nhc:wallet>CP3</nhc:wallet>
+        <nhc:atcf>CP022026</nhc:atcf>
+        <nhc:datetime>11:00 PM HST Mon Aug 24</nhc:datetime>
+        <nhc:movement>W at 14 mph</nhc:movement>
+        <nhc:pressure>1006 mb</nhc:pressure>
+        <nhc:wind>35 mph</nhc:wind>
+        <nhc:headline>...MOKE IS NO LONGER A TROPICAL CYCLONE... ...THIS IS THE FINAL NHC ADVISORY...</nhc:headline>
+      </nhc:Cyclone>
+    </item>
+    <item>
+      <title>Advisory #020 Forecast [shp] - Remnants of Moke (CP3/CP022026)</title>
+      <description>Forecast Track, Cone of Uncertainty, Watches/Warnings. Shapefile last updated Tue, 25 Aug 2026 08:54:44 GMT</description>
+      <pubDate>Tue, 25 Aug 2026 08:54:44 GMT</pubDate>
+      <link>https://www.nhc.noaa.gov/gis/forecast/archive/cp022026_5day_020.zip</link>
+      <guid isPermaLink="false">gis-forecast-shp-cp022026-020-202608250854</guid>
+      <author>nhcwebmaster@noaa.gov (NHC Webmaster)</author>
+    </item>
+    <item>
+      <title>Advisory #020 Forecast Track [kmz] - Remnants of Moke (CP3/CP022026)</title>
+      <description>KMZ last updated Tue, 25 Aug 2026 08:54:41 GMT</description>
+      <pubDate>Tue, 25 Aug 2026 08:54:41 GMT</pubDate>
+      <link>https://www.nhc.noaa.gov/storm_graphics/api/CP022026_020adv_TRACK.kmz</link>
+      <guid isPermaLink="false">gis-track-kml-cp022026-020-202608250854</guid>
+      <author>nhcwebmaster@noaa.gov (NHC Webmaster)</author>
+    </item>
+    <item>
+      <title>Advisory #020 Cone of Uncertainty [kmz] - Remnants of Moke (CP3/CP022026)</title>
+      <description>KMZ last updated Tue, 25 Aug 2026 08:54:35 GMT</description>
+      <pubDate>Tue, 25 Aug 2026 08:54:35 GMT</pubDate>
+      <link>https://www.nhc.noaa.gov/storm_graphics/api/CP022026_020adv_CONE.kmz</link>
+      <guid isPermaLink="false">gis-cone-kml-cp022026-020-202608250854</guid>
+      <author>nhcwebmaster@noaa.gov (NHC Webmaster)</author>
+    </item>
+    <item>
+      <title>Advisory #020 Wind Field [shp] - Remnants of Moke (CP3/CP022026)</title>
+      <description>Initial and Forecast Surface Winds. Shapefile last updated Tue, 25 Aug 2026 08:55:01 GMT</description>
+      <pubDate>Tue, 25 Aug 2026 08:55:01 GMT</pubDate>
+      <link>https://www.nhc.noaa.gov/gis/forecast/archive/cp022026_fcst_020.zip</link>
+      <guid isPermaLink="false">gis-wind-shp-cp022026-020-202608250855</guid>
+      <author>nhcwebmaster@noaa.gov (NHC Webmaster)</author>
+    </item>
+    <item>
+      <title>Preliminary Best Track [shp] - Remnants of Moke (CP3/CP022026)</title>
+      <description>Track, Points, and Wind Swath. Shapefile last updated Tue, 25 Aug 2026 08:54:54 GMT</description>
+      <pubDate>Tue, 25 Aug 2026 08:54:54 GMT</pubDate>
+      <link>https://www.nhc.noaa.gov/gis/best_track/cp022026_best_track.zip</link>
+      <guid isPermaLink="false">gis-bt-shp-cp022026-020-202608250854</guid>
+      <author>nhcwebmaster@noaa.gov (NHC Webmaster)</author>
+    </item>
+    <item>
+      <title>Preliminary Best Track [kmz] - Remnants of Moke (CP3/CP022026)</title>
+      <description>KMZ last updated Tue, 25 Aug 2026 08:54:51 GMT</description>
+      <pubDate>Tue, 25 Aug 2026 08:54:51 GMT</pubDate>
+      <link>https://www.nhc.noaa.gov/gis/best_track/cp022026_best_track.kmz</link>
+      <guid isPermaLink="false">gis-btpts-kml-cp022026-020-202608250854</guid>
+      <author>nhcwebmaster@noaa.gov (NHC Webmaster)</author>
+    </item>
+  </channel>
+</rss>

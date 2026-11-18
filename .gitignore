@@ -28,6 +28,8 @@ data/
 *.gpkg
 *.parquet
 *.zip
+# ...except small saved API responses used as offline test fixtures
+!backend/tests/fixtures/*.zip
 
 # Python (backend)
 __pycache__/
